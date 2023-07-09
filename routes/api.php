@@ -23,4 +23,6 @@ Route::prefix('v1/openai')->group(function () {
 
     // TODO: implement here
     //
+
+    Route::post('/filter', 'App\Http\Controllers\OpenAiApiController@filter');
 });
