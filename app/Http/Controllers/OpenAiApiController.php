@@ -19,10 +19,15 @@ class OpenAiApiController extends BaseController
     const MESSAGE_TO_ASK_FILTER_PRICE_SUGGESTION_TEMPLATE = 'Extract the content "%s" and only return as following json format {price_min_value: integer, price_max_value: integer}' ;
 
     const LABEL = 'Label';
-
     const WIDGET = 'Widget';
-
     const ID = 'Id';
+    const OPTIONS = 'Options';
+    const SELECTED = 'Selected';
+    const VALUE = 'Value';
+    const RESULT_COUNT= 'ResultCount';
+    const DEFAULT = 'default';
+    const WEIGHT_LABLE = ['color'=> 1, 'default' => 2];
+
     /**
      * @param Request $request
      * @return \Illuminate\Http\JsonResponse
@@ -137,10 +142,6 @@ class OpenAiApiController extends BaseController
         );
     }
 
-    const OPTIONS = 'Options';
-    const SELECTED = 'Selected';
-    const VALUE = 'Value';
-    const RESULT_COUNT= 'ResultCount';
     /**
      * @param array $originalFilterFromLotus
      * @param array $suggestedFilterFromOpenAiMap
@@ -153,10 +154,12 @@ class OpenAiApiController extends BaseController
         foreach ($originalFilterFromLotus as $filterByIndex) {
             $modifiedFilterByIndex = $filterByIndex;
 
-            if (!$valueFromUser = $this->getValueFromKeyCandidate(strtolower($filterByIndex[self::LABEL]), $suggestedFilterFromOpenAi)) {
+            $label = strtolower($filterByIndex[self::LABEL]) == 'colour'?
+                'color' : strtolower($filterByIndex[self::LABEL]) ;
+
+            if (!$valueFromUser = $this->getValueFromKeyCandidate($label, $suggestedFilterFromOpenAi)) {
                 continue;
             }
-
 
             if ($filterByIndex[self::LABEL] === 'Price') {
                 $widgetObject = $filterByIndex[self::WIDGET];
@@ -175,7 +178,7 @@ class OpenAiApiController extends BaseController
             foreach ($listOptions as $option) {
                 $modifiedOption = $option;
 
-                if ($this->levenshteinDistanceMatrix(strtolower($option[self::LABEL]), strtolower($valueFromUser)) <= 2) {
+                if ($this->levenshteinDistanceMatrix(strtolower($option[self::LABEL]), strtolower($valueFromUser)) <= (self::WEIGHT_LABLE[$label] ?? self::WEIGHT_LABLE[self::DEFAULT]) ) {
                     $modifiedOption[self::SELECTED] = true;
                 }
 
