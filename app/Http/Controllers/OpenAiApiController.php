@@ -68,9 +68,9 @@ class OpenAiApiController extends BaseController
         $result = $this->concurrentRequestsToOpenAi($customerContent);
 
         // Extract answers from Open AI
-        $suggestedFilterFromOpenAi = @json_decode($result[0], true);
-        $suggestedPriceFromOpenAi = @json_decode($result[1], true);
-        $suggestedSimpleKeywordFromOpenAi = @json_decode($result[2], true);
+        $suggestedFilterFromOpenAi = (array) @json_decode($result[0], true);
+        $suggestedPriceFromOpenAi = (array) @json_decode($result[1], true);
+        $suggestedSimpleKeywordFromOpenAi = (array) @json_decode($result[2], true);
 
         Log::info("OPEN_AI_RESULT", [
             $suggestedFilterFromOpenAi,
