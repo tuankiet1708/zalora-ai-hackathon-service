@@ -176,6 +176,7 @@ class OpenAiApiController extends BaseController
                 ) {
                     $option[self::SELECTED] = true;
                     $modifiedOptions[] = $option;
+                    break;
                 }
             }
 
