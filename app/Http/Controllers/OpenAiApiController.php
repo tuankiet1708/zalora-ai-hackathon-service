@@ -12,11 +12,9 @@ use Throwable;
 
 class OpenAiApiController extends BaseController
 {
-
-
-    const MESSAGE_TO_ASK_FILTER_SUGGESTION_TEMPLATE = 'Extract the category, color, brand, store and price from the content "%s" and return as json format';
-
+    const MESSAGE_TO_ASK_FILTER_SUGGESTION_TEMPLATE = 'Extract the content "%s" and only return as following json format {category: string, color: string, brand: string, store: string, rating: string, occasion: string, discount: string, material: string, pattern: string, range: string, condition: string}';
     const MESSAGE_TO_ASK_FILTER_PRICE_SUGGESTION_TEMPLATE = 'Extract the content "%s" and only return as following json format {price_min_value: integer, price_max_value: integer}' ;
+    const MESSAGE_TO_ASK_SIMPLE_KEYWORD_SUGGESTION_TEMPLATE = 'Extract main product from content "%s" and only return as following json {main_product: string}' ;
 
     const LABEL = 'Label';
     const WIDGET = 'Widget';
@@ -26,7 +24,25 @@ class OpenAiApiController extends BaseController
     const VALUE = 'Value';
     const RESULT_COUNT= 'ResultCount';
     const DEFAULT = 'default';
-    const WEIGHT_LABLE = ['color'=> 1, 'default' => 2];
+    const WEIGHT_LABEL = [
+        'color' => 1,
+        'default' => 2
+    ];
+
+    const FILTER_IDS_LOTUS_OPENAI_MAP = [
+        'brandIds[]' => 'brand',  //
+        'categoryId' => 'category', //
+        // 'price' => 'price',
+        'rating' => 'rating', //
+        // 'promotions' => 'promotion',
+        'colors[]' => 'color', //
+        'occasion' => 'occasion', //
+        'discount' => 'discount',  //
+        'material_composition' => 'material', //
+        'condition' => 'condition',
+        'pattern' => 'pattern', //
+        'range' => 'range' //
+    ];
 
     /**
      * @param Request $request
@@ -34,7 +50,6 @@ class OpenAiApiController extends BaseController
      */
     public function index(Request $request)
     {
-
         return response()->json([
             'message' => "I'm " . $request->input('name', 'OpenAI API')
         ]);
@@ -46,77 +61,31 @@ class OpenAiApiController extends BaseController
      */
     public function filter(Request $request)
     {
-
-//        $originalFilterFromLotus = (array) $request->input('filter', []);
         $originalFilterFromLotus = GeneralFilter::generateGeneralFilter();
-
         $customerContent = $request->input('content', '');
 
         // Make request to Open AI with customerContent
-        $result = $this->callOpenAi(
-            $this->buildMessageToAskFilterSuggestionFromOpenAi($customerContent)
-        );
+        $result = $this->concurrentRequestsToOpenAi($customerContent);
 
-        // Extract answer from Open AI
-        $message = $this->extractOpenAiMessage($result);
+        // Extract answers from Open AI
+        $suggestedFilterFromOpenAi = @json_decode($result[0], true);
+        $suggestedPriceFromOpenAi = @json_decode($result[1], true);
+        $suggestedSimpleKeywordFromOpenAi = @json_decode($result[2], true);
 
-//        $message = "{\n  \"category\": \"shoes\",\n  \"color\": \"red\",\n  \"brand\": \"Adidas\",\n  \"store\": \"unknown\",\n  \"price\": \"less than 870 usd\"\n}";
-        $suggestedFilterFromOpenAi = @json_decode($message, true);
+        Log::info("OPEN_AI_RESULT", [
+            $suggestedFilterFromOpenAi,
+            $suggestedPriceFromOpenAi,
+            $suggestedSimpleKeywordFromOpenAi
+        ]);
 
         // Rebuild the filter with suggestion from Open AI
-        $filter = $this->rebuildFilter($originalFilterFromLotus, $suggestedFilterFromOpenAi, $customerContent);
+        $filter = $this->rebuildFilter($originalFilterFromLotus, $suggestedFilterFromOpenAi, $suggestedPriceFromOpenAi);
+        $simpleKeyword = $this->extractSimpleKeyword($suggestedSimpleKeywordFromOpenAi);
 
         return response()->json([
-            'data' => $filter
+            'data' => compact('simpleKeyword', 'filter')
         ]);
     }
-
-
-
-    public function buildMap(array $data)
-    {
-        $map = [];
-        foreach ($data as $key => $value) {
-            $map[$key] = $value;
-        }
-        return $map;
-    }
-
-    public function levenshteinDistanceMatrix($string1, $string2) {
-        $length1 = mb_strlen($string1, 'UTF-8');
-        $length2 = mb_strlen($string2, 'UTF-8');
-
-        // Create the matrix
-        $matrix = array_fill(0, $length1 + 1, array_fill(0, $length2 + 1, 0));
-
-        // Initialize the matrix
-        for ($i = 0; $i <= $length1; $i++) {
-            $matrix[$i][0] = $i;
-        }
-
-        for ($j = 0; $j <= $length2; $j++) {
-            $matrix[0][$j] = $j;
-        }
-
-        // Fill the matrix
-        for ($i = 1; $i <= $length1; $i++) {
-            for ($j = 1; $j <= $length2; $j++) {
-                $cost = ($string1[$i - 1] !== $string2[$j - 1]) ? 1 : 0;
-
-                $matrix[$i][$j] = min(
-                    $matrix[$i - 1][$j] + 1,
-                    $matrix[$i][$j - 1] + 1,
-                    $matrix[$i - 1][$j - 1] + $cost
-                );
-            }
-        }
-
-        // Return the bottom-right cell of the matrix
-        return $matrix[$length1][$length2];
-    }
-
-
-
 
     /**
      * @param string $content
@@ -143,27 +112,33 @@ class OpenAiApiController extends BaseController
     }
 
     /**
+     * @param string $content
+     * @return string
+     */
+    protected function buildMessageToAskSimpleKeywordSuggestionFromOpenAi(string $content): string
+    {
+        return sprintf(
+            self::MESSAGE_TO_ASK_SIMPLE_KEYWORD_SUGGESTION_TEMPLATE,
+            $content
+        );
+    }
+
+    /**
      * @param array $originalFilterFromLotus
-     * @param array $suggestedFilterFromOpenAiMap
+     * @param array $suggestedFilterFromOpenAi
+     * @param array $suggestedPriceFromOpenAi
      * @return array
      */
-    protected function rebuildFilter(array $originalFilterFromLotus, array $suggestedFilterFromOpenAi, string $customerContent): array
+    protected function rebuildFilter(array $originalFilterFromLotus, array $suggestedFilterFromOpenAi, array $suggestedPriceFromOpenAi): array
     {
         $modifiedFilter = [];
 
         foreach ($originalFilterFromLotus as $filterByIndex) {
             $modifiedFilterByIndex = $filterByIndex;
 
-            $label = strtolower($filterByIndex[self::LABEL]) == 'colour'?
-                'color' : strtolower($filterByIndex[self::LABEL]) ;
-
-            if (!$valueFromUser = $this->getValueFromKeyCandidate($label, $suggestedFilterFromOpenAi)) {
-                continue;
-            }
-
-            if ($filterByIndex[self::LABEL] === 'Price') {
+            if ($filterByIndex[self::ID] === 'price') {
                 $widgetObject = $filterByIndex[self::WIDGET];
-                list($minValue, $maxValue) = $this->getMinMaxSelectedByOpenAI($customerContent);
+                list($minValue, $maxValue) = $this->extractMinMaxPrice($suggestedPriceFromOpenAi);
                 $widgetObject['MinSelected'] = $minValue;
                 $widgetObject['MaxSelected'] = $maxValue;
 
@@ -172,51 +147,129 @@ class OpenAiApiController extends BaseController
                 continue;
             }
 
-            $listOptions = $filterByIndex[self::OPTIONS];
-            $modifiedOptions = [];
-
-            foreach ($listOptions as $option) {
-                $modifiedOption = $option;
-
-                if ($this->levenshteinDistanceMatrix(strtolower($option[self::LABEL]), strtolower($valueFromUser)) <= (self::WEIGHT_LABLE[$label] ?? self::WEIGHT_LABLE[self::DEFAULT]) ) {
-                    $modifiedOption[self::SELECTED] = true;
-                }
-
-                $modifiedOptions[] = $modifiedOption;
+            if (!isset(self::FILTER_IDS_LOTUS_OPENAI_MAP[$filterByIndex[self::ID]])) {
+                continue;
             }
 
-            $modifiedFilterByIndex[self::OPTIONS] = $modifiedOptions;
-            $modifiedFilter[] = $modifiedFilterByIndex;
+            $filterKeyFromOpenAi = self::FILTER_IDS_LOTUS_OPENAI_MAP[$filterByIndex[self::ID]];
+            $valueFromOpenAi = $this->getValueFromKeyCandidate($filterKeyFromOpenAi, $suggestedFilterFromOpenAi);
+
+            if (empty($valueFromOpenAi)) {
+                continue;
+            }
+
+            $modifiedOptions = [];
+
+            foreach ($filterByIndex[self::OPTIONS] as $option) {
+                if ($this->levenshteinDistanceMatrix(strtolower($option[self::LABEL]), strtolower($valueFromOpenAi))
+                    <= (self::WEIGHT_LABEL[$filterKeyFromOpenAi] ?? self::WEIGHT_LABEL[self::DEFAULT])
+                ) {
+                    $option[self::SELECTED] = true;
+                    $modifiedOptions[] = $option;
+                }
+            }
+
+            if (! empty($modifiedOptions)) {
+                $modifiedFilterByIndex[self::OPTIONS] = $modifiedOptions;
+                $modifiedFilter[] = $modifiedFilterByIndex;
+            }
         }
 
         return $modifiedFilter;
     }
 
-    public function getMinMaxSelectedByOpenAI($queryFromUser)
+    /**
+     * @param array $suggestedPriceFromOpenAi
+     * @return array
+     */
+    protected function extractMinMaxPrice(array $suggestedPriceFromOpenAi): array
     {
-        $result = $this->callOpenAi(
-            $this->buildMessageToAskFilterPriceSuggestionFromOpenAi($queryFromUser)
-        );
-        $message = $this->extractOpenAiMessage($result);
-        $message = @json_decode($message, true);
-        if($message){
-            $minValue = $message['price_min_value'] ?? 0;
-            $maxValue = max($message['price_max_value'] ?? 0, $minValue + 1) ;
-            return [$minValue, $maxValue];
-        }
-
-        return [0, 200];
-
+        $minValue = $suggestedPriceFromOpenAi['price_min_value'] ?? null;
+        $maxValue = $suggestedPriceFromOpenAi['price_max_value'] ?? null ;
+        return [$minValue, $maxValue];
     }
 
-    public function getValueFromKeyCandidate($string1, $suggestedFilterFromOpenAiMap)
+    /**
+     * @param array $suggestedSimpleKeywordFromOpenAi
+     * @return string
+     */
+    protected function extractSimpleKeyword(array $suggestedSimpleKeywordFromOpenAi): string
     {
-        if(!array_key_exists($string1, $suggestedFilterFromOpenAiMap)){
-            return "";
-        }
-        return $suggestedFilterFromOpenAiMap[$string1];
+        return $suggestedSimpleKeywordFromOpenAi['main_product'] ?? '';
     }
+
+        /**
+     * @param $filterKey
+     * @param $suggestedFilterFromOpenAiMap
+     * @return string
+     */
+    protected function getValueFromKeyCandidate($filterKey, $suggestedFilterFromOpenAiMap): string
+    {
+        return $suggestedFilterFromOpenAiMap[$filterKey] ?? '';
+    }
+
+
+    ############################################
     ###### FUNCTIONS TO WORK WITH OPEN AI ######
+    ############################################
+
+    /**
+     * @param string $content
+     * @return array|string[]
+     */
+    protected function concurrentRequestsToOpenAi(string $content): array
+    {
+        try {
+            $responses = Http::pool(fn(Pool $pool) => [
+                $pool->withToken(env('OPENAI_API_KEY'))
+                    ->acceptJson()
+                    ->post(env('OPENAI_URL'), [
+                        'model' => 'gpt-3.5-turbo',
+                        'messages' => [
+                            [
+                                'role' => 'user',
+                                'content' => $this->buildMessageToAskFilterSuggestionFromOpenAi($content)
+                            ]
+                        ],
+                        'temperature' => 0.7
+                    ]),
+                $pool->withToken(env('OPENAI_API_KEY'))
+                    ->acceptJson()
+                    ->post(env('OPENAI_URL'), [
+                        'model' => 'gpt-3.5-turbo',
+                        'messages' => [
+                            [
+                                'role' => 'user',
+                                'content' => $this->buildMessageToAskFilterPriceSuggestionFromOpenAi($content)
+                            ]
+                        ],
+                        'temperature' => 0.7
+                    ]),
+                $pool->withToken(env('OPENAI_API_KEY'))
+                    ->acceptJson()
+                    ->post(env('OPENAI_URL'), [
+                        'model' => 'gpt-3.5-turbo',
+                        'messages' => [
+                            [
+                                'role' => 'user',
+                                'content' => $this->buildMessageToAskSimpleKeywordSuggestionFromOpenAi($content)
+                            ]
+                        ],
+                        'temperature' => 0.7
+                    ]),
+            ]);
+
+            return [
+                $this->extractOpenAiMessage($responses[0]->json()),
+                $this->extractOpenAiMessage($responses[1]->json()),
+                $this->extractOpenAiMessage($responses[2]->json()),
+            ];
+        } catch (Throwable $ex) {
+            //
+        }
+
+        return [ '{}', '{}', '{}' ];
+    }
 
     /**
      * @param string $message
@@ -256,4 +309,43 @@ class OpenAiApiController extends BaseController
     {
         return $result['choices'][0]['message']['content'] ?? '';
     }
+
+    /**
+     * @param $string1
+     * @param $string2
+     * @return mixed
+     */
+    protected function levenshteinDistanceMatrix($string1, $string2) {
+        $length1 = mb_strlen($string1, 'UTF-8');
+        $length2 = mb_strlen($string2, 'UTF-8');
+
+        // Create the matrix
+        $matrix = array_fill(0, $length1 + 1, array_fill(0, $length2 + 1, 0));
+
+        // Initialize the matrix
+        for ($i = 0; $i <= $length1; $i++) {
+            $matrix[$i][0] = $i;
+        }
+
+        for ($j = 0; $j <= $length2; $j++) {
+            $matrix[0][$j] = $j;
+        }
+
+        // Fill the matrix
+        for ($i = 1; $i <= $length1; $i++) {
+            for ($j = 1; $j <= $length2; $j++) {
+                $cost = ($string1[$i - 1] !== $string2[$j - 1]) ? 1 : 0;
+
+                $matrix[$i][$j] = min(
+                    $matrix[$i - 1][$j] + 1,
+                    $matrix[$i][$j - 1] + 1,
+                    $matrix[$i - 1][$j - 1] + $cost
+                );
+            }
+        }
+
+        // Return the bottom-right cell of the matrix
+        return $matrix[$length1][$length2];
+    }
+
 }
