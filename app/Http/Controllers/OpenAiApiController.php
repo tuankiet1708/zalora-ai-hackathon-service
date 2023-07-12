@@ -13,9 +13,9 @@ use Throwable;
 
 class OpenAiApiController extends BaseController
 {
-    const MESSAGE_TO_ASK_FILTER_SUGGESTION_TEMPLATE = 'Extract the content "%s" and only return as following json format {category: string, color: array, brand: array, rating: string, occasion: string, discount: string, material: string, pattern: string, range: string, condition: string, price_min_value: integer, price_max_value: integer, main_product_keywords: array}';
+    const MESSAGE_TO_ASK_FILTER_SUGGESTION_TEMPLATE = 'Extract the content "%s" and only return as following json format {category: string, color: array, brand: array, rating: string, occasion: string, discount: string, material: string, pattern: string, range: string, condition: string, price_min_value: integer, price_max_value: integer}';
     const MESSAGE_TO_ASK_FILTER_PRICE_SUGGESTION_TEMPLATE = 'Extract the content "%s" and only return as following json format {price_min_value: integer, price_max_value: integer}' ;
-    const MESSAGE_TO_ASK_SIMPLE_KEYWORD_SUGGESTION_TEMPLATE = 'Extract main product from content "%s" and only return as following json {main_product: string}' ;
+    const MESSAGE_TO_ASK_SIMPLE_KEYWORD_SUGGESTION_TEMPLATE = 'Extract main product name from content "%s" and only return as following json {main_product_name: string}' ;
 
     const LABEL = 'Label';
     const WIDGET = 'Widget';
@@ -70,14 +70,16 @@ class OpenAiApiController extends BaseController
 
         // Extract answers from Open AI
         $suggestedFilterFromOpenAi = (array) @json_decode($result[0], true);
+        $suggestedSimpleKeywordFromOpenAi = (array) @json_decode($result[1], true);
 
         Log::info("OPEN_AI_RESULT", [
-            $suggestedFilterFromOpenAi
+            $suggestedFilterFromOpenAi,
+            $suggestedSimpleKeywordFromOpenAi
         ]);
 
         // Rebuild the filter with suggestion from Open AI
         $filter = $this->rebuildFilter($originalFilterFromLotus, $suggestedFilterFromOpenAi);
-        $simpleKeyword = $this->extractSimpleKeyword($suggestedFilterFromOpenAi);
+        $simpleKeyword = $this->extractSimpleKeyword($suggestedSimpleKeywordFromOpenAi);
 
         return response()->json([
             'data' => compact('simpleKeyword', 'filter')
@@ -197,7 +199,7 @@ class OpenAiApiController extends BaseController
     {
         $minValue = $suggestedPriceFromOpenAi['price_min_value'] ?? null;
         $maxValue = $suggestedPriceFromOpenAi['price_max_value'] ?? null ;
-        return [$minValue, $maxValue];
+        return [(int) $minValue, (int) $maxValue];
     }
 
     /**
@@ -206,7 +208,7 @@ class OpenAiApiController extends BaseController
      */
     protected function extractSimpleKeyword(array $suggestedSimpleKeywordFromOpenAi): string
     {
-        return Arr::first((array) $suggestedSimpleKeywordFromOpenAi['main_product_keywords'] ?? []);
+        return (string) $suggestedSimpleKeywordFromOpenAi['main_product_name'] ?? '';
     }
 
         /**
@@ -243,17 +245,30 @@ class OpenAiApiController extends BaseController
                             ]
                         ],
                         'temperature' => 0.7
+                    ]),
+                $pool->withToken(env('OPENAI_API_KEY'))
+                    ->acceptJson()
+                    ->post(env('OPENAI_URL'), [
+                        'model' => 'gpt-3.5-turbo',
+                        'messages' => [
+                            [
+                                'role' => 'user',
+                                'content' => $this->buildMessageToAskSimpleKeywordSuggestionFromOpenAi($content)
+                            ]
+                        ],
+                        'temperature' => 0.7
                     ])
             ]);
 
             return [
-                $this->extractOpenAiMessage($responses[0]->json())
+                $this->extractOpenAiMessage($responses[0]->json()),
+                $this->extractOpenAiMessage($responses[1]->json())
             ];
         } catch (Throwable $ex) {
             //
         }
 
-        return [ '{}', ];
+        return [ '{}', '{}' ];
     }
 
     /**
