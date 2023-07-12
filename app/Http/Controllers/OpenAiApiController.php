@@ -12,7 +12,7 @@ use Throwable;
 
 class OpenAiApiController extends BaseController
 {
-    const MESSAGE_TO_ASK_FILTER_SUGGESTION_TEMPLATE = 'Extract the content "%s" and only return as following json format {category: string, color: string, brand: string, store: string, rating: string, occasion: string, discount: string, material: string, pattern: string, range: string, condition: string}';
+    const MESSAGE_TO_ASK_FILTER_SUGGESTION_TEMPLATE = 'Extract the content "%s" and only return as following json format {category: string, color: array, brand: array, rating: string, occasion: string, discount: string, material: string, pattern: string, range: string, condition: string}';
     const MESSAGE_TO_ASK_FILTER_PRICE_SUGGESTION_TEMPLATE = 'Extract the content "%s" and only return as following json format {price_min_value: integer, price_max_value: integer}' ;
     const MESSAGE_TO_ASK_SIMPLE_KEYWORD_SUGGESTION_TEMPLATE = 'Extract main product from content "%s" and only return as following json {main_product: string}' ;
 
@@ -161,6 +161,20 @@ class OpenAiApiController extends BaseController
             $modifiedOptions = [];
 
             foreach ($filterByIndex[self::OPTIONS] as $option) {
+                // with array values
+                if (is_array($valueFromOpenAi)) {
+                    foreach ($valueFromOpenAi as $val) {
+                        if ($this->levenshteinDistanceMatrix(strtolower($option[self::LABEL]), strtolower($val))
+                            <= (self::WEIGHT_LABEL[$filterKeyFromOpenAi] ?? self::WEIGHT_LABEL[self::DEFAULT])
+                        ) {
+                            $option[self::SELECTED] = true;
+                            $modifiedOptions[] = $option;
+                        }
+                    }
+                    continue;
+                }
+
+                // with string value
                 if ($this->levenshteinDistanceMatrix(strtolower($option[self::LABEL]), strtolower($valueFromOpenAi))
                     <= (self::WEIGHT_LABEL[$filterKeyFromOpenAi] ?? self::WEIGHT_LABEL[self::DEFAULT])
                 ) {
@@ -201,9 +215,9 @@ class OpenAiApiController extends BaseController
         /**
      * @param $filterKey
      * @param $suggestedFilterFromOpenAiMap
-     * @return string
+     * @return string|array
      */
-    protected function getValueFromKeyCandidate($filterKey, $suggestedFilterFromOpenAiMap): string
+    protected function getValueFromKeyCandidate($filterKey, $suggestedFilterFromOpenAiMap)
     {
         return $suggestedFilterFromOpenAiMap[$filterKey] ?? '';
     }
