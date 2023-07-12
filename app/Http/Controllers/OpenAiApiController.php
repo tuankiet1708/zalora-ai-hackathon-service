@@ -27,7 +27,7 @@ class OpenAiApiController extends BaseController
     const DEFAULT = 'default';
     const WEIGHT_LABEL = [
         'color' => 1,
-        'default' => 2
+        'default' => 1
     ];
 
     const FILTER_IDS_LOTUS_OPENAI_MAP = [
@@ -134,14 +134,23 @@ class OpenAiApiController extends BaseController
         foreach ($originalFilterFromLotus as $filterByIndex) {
             $modifiedFilterByIndex = $filterByIndex;
 
+            // particular process for price filter
             if ($filterByIndex[self::ID] === 'price') {
-                $widgetObject = $filterByIndex[self::WIDGET];
                 list($minValue, $maxValue) = $this->extractMinMaxPrice($suggestedFilterFromOpenAi);
-                $widgetObject['MinSelected'] = $minValue;
-                $widgetObject['MaxSelected'] = $maxValue;
 
-                $modifiedFilterByIndex[self::WIDGET] = $widgetObject;
+                if (empty($minValue) && empty($maxValue)) {
+                    continue;
+                }
+
+                $modifiedFilterByIndex[self::OPTIONS][] = [
+                    'Value' => $this->buildValueOptionForPrice($minValue, $maxValue),
+                    'Label' => $this->buildValueOptionForPrice($minValue, $maxValue),
+                    'Selected' => true,
+                    'SubOptions' => [],
+                    'ResultCount' => 0
+                ];
                 $modifiedFilter[] = $modifiedFilterByIndex;
+
                 continue;
             }
 
@@ -199,7 +208,20 @@ class OpenAiApiController extends BaseController
     {
         $minValue = $suggestedPriceFromOpenAi['price_min_value'] ?? null;
         $maxValue = $suggestedPriceFromOpenAi['price_max_value'] ?? null ;
-        return [(int) $minValue, (int) $maxValue];
+        return [$minValue, $maxValue];
+    }
+
+    /**
+     * @param $minValue
+     * @param $maxValue
+     * @return string
+     */
+    protected function buildValueOptionForPrice($minValue, $maxValue): string
+    {
+        $minValue = empty($minValue) ? '*' : $minValue;
+        $maxValue = empty($maxValue) ? '*' : $maxValue;
+
+        return sprintf('%s-%s', $minValue, $maxValue);
     }
 
     /**
@@ -208,7 +230,7 @@ class OpenAiApiController extends BaseController
      */
     protected function extractSimpleKeyword(array $suggestedSimpleKeywordFromOpenAi): string
     {
-        return (string) $suggestedSimpleKeywordFromOpenAi['main_product_name'] ?? '';
+        return (string) ($suggestedSimpleKeywordFromOpenAi['main_product_name'] ?? '');
     }
 
         /**
