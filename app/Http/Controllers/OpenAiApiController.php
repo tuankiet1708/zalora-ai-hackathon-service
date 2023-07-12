@@ -167,27 +167,45 @@ class OpenAiApiController extends BaseController
 
             $modifiedOptions = [];
 
-            foreach ($filterByIndex[self::OPTIONS] as $option) {
-                // with array values
-                if (is_array($valueFromOpenAi)) {
-                    foreach ($valueFromOpenAi as $val) {
-                        if ($this->levenshteinDistanceMatrix(strtolower($option[self::LABEL]), strtolower($val))
-                            <= (self::WEIGHT_LABEL[$filterKeyFromOpenAi] ?? self::WEIGHT_LABEL[self::DEFAULT])
-                        ) {
-                            $option[self::SELECTED] = true;
-                            $modifiedOptions[] = $option;
-                        }
-                    }
-                    continue;
+            //particular process for discount filter
+            if(strtolower($filterByIndex[self::ID]) == 'discount'){
+                $dataUser = floor($valueFromOpenAi/10) * 10;
+                if($dataUser >= 80){
+                    $dataUser = 80;
                 }
-
-                // with string value
-                if ($this->levenshteinDistanceMatrix(strtolower($option[self::LABEL]), strtolower($valueFromOpenAi))
-                    <= (self::WEIGHT_LABEL[$filterKeyFromOpenAi] ?? self::WEIGHT_LABEL[self::DEFAULT])
-                ) {
+                foreach ($filterByIndex[self::OPTIONS] as $option) {
+                    $rangeValueDiscount = explode("-", $option[self::VALUE]);
+                    $firstDiscount = (int)$rangeValueDiscount[0]?? "";
+                    if(!$firstDiscount or $firstDiscount != $dataUser){
+                        continue;
+                    }
                     $option[self::SELECTED] = true;
                     $modifiedOptions[] = $option;
-                    break;
+                }
+            }
+            else{
+                foreach ($filterByIndex[self::OPTIONS] as $option) {
+                    // with array values
+                    if (is_array($valueFromOpenAi)) {
+                        foreach ($valueFromOpenAi as $val) {
+                            if ($this->levenshteinDistanceMatrix(strtolower($option[self::LABEL]), strtolower($val))
+                                <= (self::WEIGHT_LABEL[$filterKeyFromOpenAi] ?? self::WEIGHT_LABEL[self::DEFAULT])
+                            ) {
+                                $option[self::SELECTED] = true;
+                                $modifiedOptions[] = $option;
+                            }
+                        }
+                        continue;
+                    }
+
+                    // with string value
+                    if ($this->levenshteinDistanceMatrix(strtolower($option[self::LABEL]), strtolower($valueFromOpenAi))
+                        <= (self::WEIGHT_LABEL[$filterKeyFromOpenAi] ?? self::WEIGHT_LABEL[self::DEFAULT])
+                    ) {
+                        $option[self::SELECTED] = true;
+                        $modifiedOptions[] = $option;
+                        break;
+                    }
                 }
             }
 
