@@ -6,13 +6,14 @@ use App\Models\GeneralFilter;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller as BaseController;
 use Illuminate\Http\Client\Pool;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
 class OpenAiApiController extends BaseController
 {
-    const MESSAGE_TO_ASK_FILTER_SUGGESTION_TEMPLATE = 'Extract the content "%s" and only return as following json format {category: string, color: array, brand: array, rating: string, occasion: string, discount: string, material: string, pattern: string, range: string, condition: string}';
+    const MESSAGE_TO_ASK_FILTER_SUGGESTION_TEMPLATE = 'Extract the content "%s" and only return as following json format {category: string, color: array, brand: array, rating: string, occasion: string, discount: string, material: string, pattern: string, range: string, condition: string, price_min_value: integer, price_max_value: integer, main_product_keywords: array}';
     const MESSAGE_TO_ASK_FILTER_PRICE_SUGGESTION_TEMPLATE = 'Extract the content "%s" and only return as following json format {price_min_value: integer, price_max_value: integer}' ;
     const MESSAGE_TO_ASK_SIMPLE_KEYWORD_SUGGESTION_TEMPLATE = 'Extract main product from content "%s" and only return as following json {main_product: string}' ;
 
@@ -69,18 +70,14 @@ class OpenAiApiController extends BaseController
 
         // Extract answers from Open AI
         $suggestedFilterFromOpenAi = (array) @json_decode($result[0], true);
-        $suggestedPriceFromOpenAi = (array) @json_decode($result[1], true);
-        $suggestedSimpleKeywordFromOpenAi = (array) @json_decode($result[2], true);
 
         Log::info("OPEN_AI_RESULT", [
-            $suggestedFilterFromOpenAi,
-            $suggestedPriceFromOpenAi,
-            $suggestedSimpleKeywordFromOpenAi
+            $suggestedFilterFromOpenAi
         ]);
 
         // Rebuild the filter with suggestion from Open AI
-        $filter = $this->rebuildFilter($originalFilterFromLotus, $suggestedFilterFromOpenAi, $suggestedPriceFromOpenAi);
-        $simpleKeyword = $this->extractSimpleKeyword($suggestedSimpleKeywordFromOpenAi);
+        $filter = $this->rebuildFilter($originalFilterFromLotus, $suggestedFilterFromOpenAi);
+        $simpleKeyword = $this->extractSimpleKeyword($suggestedFilterFromOpenAi);
 
         return response()->json([
             'data' => compact('simpleKeyword', 'filter')
@@ -126,10 +123,9 @@ class OpenAiApiController extends BaseController
     /**
      * @param array $originalFilterFromLotus
      * @param array $suggestedFilterFromOpenAi
-     * @param array $suggestedPriceFromOpenAi
      * @return array
      */
-    protected function rebuildFilter(array $originalFilterFromLotus, array $suggestedFilterFromOpenAi, array $suggestedPriceFromOpenAi): array
+    protected function rebuildFilter(array $originalFilterFromLotus, array $suggestedFilterFromOpenAi): array
     {
         $modifiedFilter = [];
 
@@ -138,7 +134,7 @@ class OpenAiApiController extends BaseController
 
             if ($filterByIndex[self::ID] === 'price') {
                 $widgetObject = $filterByIndex[self::WIDGET];
-                list($minValue, $maxValue) = $this->extractMinMaxPrice($suggestedPriceFromOpenAi);
+                list($minValue, $maxValue) = $this->extractMinMaxPrice($suggestedFilterFromOpenAi);
                 $widgetObject['MinSelected'] = $minValue;
                 $widgetObject['MaxSelected'] = $maxValue;
 
@@ -209,7 +205,7 @@ class OpenAiApiController extends BaseController
      */
     protected function extractSimpleKeyword(array $suggestedSimpleKeywordFromOpenAi): string
     {
-        return $suggestedSimpleKeywordFromOpenAi['main_product'] ?? '';
+        return Arr::first((array) $suggestedSimpleKeywordFromOpenAi['main_product_keywords'] ?? []);
     }
 
         /**
@@ -246,43 +242,17 @@ class OpenAiApiController extends BaseController
                             ]
                         ],
                         'temperature' => 0.7
-                    ]),
-                $pool->withToken(env('OPENAI_API_KEY'))
-                    ->acceptJson()
-                    ->post(env('OPENAI_URL'), [
-                        'model' => 'gpt-3.5-turbo',
-                        'messages' => [
-                            [
-                                'role' => 'user',
-                                'content' => $this->buildMessageToAskFilterPriceSuggestionFromOpenAi($content)
-                            ]
-                        ],
-                        'temperature' => 0.7
-                    ]),
-                $pool->withToken(env('OPENAI_API_KEY'))
-                    ->acceptJson()
-                    ->post(env('OPENAI_URL'), [
-                        'model' => 'gpt-3.5-turbo',
-                        'messages' => [
-                            [
-                                'role' => 'user',
-                                'content' => $this->buildMessageToAskSimpleKeywordSuggestionFromOpenAi($content)
-                            ]
-                        ],
-                        'temperature' => 0.7
-                    ]),
+                    ])
             ]);
 
             return [
-                $this->extractOpenAiMessage($responses[0]->json()),
-                $this->extractOpenAiMessage($responses[1]->json()),
-                $this->extractOpenAiMessage($responses[2]->json()),
+                $this->extractOpenAiMessage($responses[0]->json())
             ];
         } catch (Throwable $ex) {
             //
         }
 
-        return [ '{}', '{}', '{}' ];
+        return [ '{}', ];
     }
 
     /**
