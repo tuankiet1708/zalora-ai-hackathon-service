@@ -13,7 +13,7 @@ use Throwable;
 
 class OpenAiApiController extends BaseController
 {
-    const MESSAGE_TO_ASK_FILTER_SUGGESTION_TEMPLATE = 'Extract the content "%s" and only return as following json format {category: string, color: array, brand: array, rating: string, occasion: string, discount: string, material: string, pattern: string, range: string, condition: string, price_min_value: integer, price_max_value: integer}';
+    const MESSAGE_TO_ASK_FILTER_SUGGESTION_TEMPLATE = 'Extract the content "%s" and only return as following json format {category: string, color: array, brand: array, rating: string, occasion: string, discount: int, material: string, pattern: string, range: string, condition: string, price_min_value: integer, price_max_value: integer}';
     const MESSAGE_TO_ASK_FILTER_PRICE_SUGGESTION_TEMPLATE = 'Extract the content "%s" and only return as following json format {price_min_value: integer, price_max_value: integer}' ;
     const MESSAGE_TO_ASK_SIMPLE_KEYWORD_SUGGESTION_TEMPLATE = 'Extract main product name from content "%s" and only return as following json {main_product_name: string}' ;
 
