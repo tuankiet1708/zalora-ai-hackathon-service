@@ -167,23 +167,25 @@ class OpenAiApiController extends BaseController
 
             $modifiedOptions = [];
 
-            //particular process for discount filter
-            if(strtolower($filterByIndex[self::ID]) == 'discount'){
-                $dataUser = floor($valueFromOpenAi/10) * 10;
-                if($dataUser >= 80){
-                    $dataUser = 80;
+            // particular process for discount filter
+            if (strtolower($filterByIndex[self::ID]) == 'discount') {
+                $suggestedValue = floor($valueFromOpenAi/10) * 10;
+                if ($suggestedValue >= 80) {
+                    $suggestedValue = 80;
                 }
+
                 foreach ($filterByIndex[self::OPTIONS] as $option) {
-                    $rangeValueDiscount = explode("-", $option[self::VALUE]);
-                    $firstDiscount = (int)$rangeValueDiscount[0]?? "";
-                    if(!$firstDiscount or $firstDiscount != $dataUser){
+                    $rangeValueDiscount = explode('-', $option[self::VALUE]);
+                    $firstDiscount = (int) ($rangeValueDiscount[0] ?? 0);
+
+                    if (!$firstDiscount || $firstDiscount != $suggestedValue) {
                         continue;
                     }
+
                     $option[self::SELECTED] = true;
                     $modifiedOptions[] = $option;
                 }
-            }
-            else{
+            } else {
                 foreach ($filterByIndex[self::OPTIONS] as $option) {
                     // with array values
                     if (is_array($valueFromOpenAi)) {
